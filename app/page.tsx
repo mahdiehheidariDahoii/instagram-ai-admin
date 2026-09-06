@@ -30,6 +30,7 @@ export default function Home() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [apiResult, setApiResult] = useState<ApiResultType | null>(null);
+  const [caption, setCaption] = useState("");
   const [error, setError] = useState("");
 
   function handleChange(
@@ -43,13 +44,8 @@ export default function Home() {
     }));
   }
 
-
-  async function generateImage() {
-  setIsLoading(true);
-  setError("");
-
-  try {
-    const response = await fetch("/api/generate-image", {
+  async function generateCaption() {
+    const response = await fetch("/api/generate-caption", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -60,26 +56,50 @@ export default function Home() {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || "درخواست به API موفق نبود");
+      throw new Error(data.error || "خطا در تولید کپشن");
     }
 
-    setApiResult(data);
-  } catch (err) {
-    setError(
-      err instanceof Error
-        ? err.message
-        : "ارسال اطلاعات به API با خطا مواجه شد"
-    );
-    console.error(err);
-  } finally {
-    setIsLoading(false);
+    setCaption(data.caption);
   }
-}
 
-async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-  event.preventDefault();
-  await generateImage();
-}
+  async function generateImage() {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "درخواست به API موفق نبود");
+      }
+
+      setApiResult(data);
+
+      await generateCaption();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "ارسال اطلاعات با خطا مواجه شد"
+      );
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await generateImage();
+  }
 
   const imageSrc =
     apiResult?.imageUrl ||
@@ -108,65 +128,42 @@ async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
           onSubmit={handleSubmit}
           className="space-y-6 rounded-2xl bg-white p-8 shadow-sm"
         >
-          <div>
-            <label className="mb-2 block font-medium">
-              حوزه فعالیت پیج
-            </label>
+          {[
+            {
+              name: "business",
+              label: "حوزه فعالیت پیج",
+              placeholder: "مثلاً فروش دستگاه‌های CNC سنگ",
+            },
+            {
+              name: "audience",
+              label: "مخاطب هدف",
+              placeholder: "مثلاً صاحبان کارگاه‌های سنگ و کارخانه‌ها",
+            },
+            {
+              name: "style",
+              label: "سبک پیج",
+              placeholder: "مثلاً حرفه‌ای، مینیمال و صنعتی",
+            },
+            {
+              name: "topic",
+              label: "موضوع این پست",
+              placeholder: "مثلاً دقت برش دستگاه CNC پنج محور",
+            },
+          ].map((item) => (
+            <div key={item.name}>
+              <label className="mb-2 block font-medium">
+                {item.label}
+              </label>
 
-            <input
-              name="business"
-              value={formData.business}
-              onChange={handleChange}
-              type="text"
-              placeholder="مثلاً فروش دستگاه‌های CNC سنگ"
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block font-medium">
-              مخاطب هدف
-            </label>
-
-            <input
-              name="audience"
-              value={formData.audience}
-              onChange={handleChange}
-              type="text"
-              placeholder="مثلاً صاحبان کارگاه‌های سنگ و کارخانه‌ها"
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block font-medium">
-              سبک پیج
-            </label>
-
-            <input
-              name="style"
-              value={formData.style}
-              onChange={handleChange}
-              type="text"
-              placeholder="مثلاً حرفه‌ای، مینیمال و صنعتی"
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block font-medium">
-              موضوع این پست
-            </label>
-
-            <input
-              name="topic"
-              value={formData.topic}
-              onChange={handleChange}
-              type="text"
-              placeholder="مثلاً دقت برش دستگاه CNC پنج محور"
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
-            />
-          </div>
+              <input
+                name={item.name}
+                value={formData[item.name as keyof FormDataType]}
+                onChange={handleChange}
+                className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
+                placeholder={item.placeholder}
+              />
+            </div>
+          ))}
 
           <div>
             <label className="mb-2 block font-medium">
@@ -178,8 +175,8 @@ async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
               value={formData.extra}
               onChange={handleChange}
               rows={4}
-              placeholder="مثلاً تصویر واقع‌گرایانه، مدرن، بدون نوشته و مناسب پست اینستاگرام"
               className="w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 outline-none"
+              placeholder="مثلاً تصویر واقع‌گرایانه، مدرن، بدون نوشته"
             />
           </div>
 
@@ -188,7 +185,7 @@ async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
             disabled={isLoading}
             className="w-full rounded-xl bg-zinc-900 px-5 py-3 font-medium text-white disabled:opacity-60"
           >
-            {isLoading ? "در حال تولید تصویر..." : "تولید تصویر"}
+            {isLoading ? "در حال تولید..." : "تولید تصویر"}
           </button>
 
           {error && (
@@ -198,8 +195,10 @@ async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
           )}
 
           {imageSrc && (
-            <div className="space-y-4 rounded-xl bg-zinc-100 p-4 text-sm">
-              <p className="font-medium">تصویر تولیدشده:</p>
+            <div className="space-y-4 rounded-xl bg-zinc-100 p-4">
+              <p className="font-medium">
+                تصویر تولیدشده:
+              </p>
 
               <img
                 src={imageSrc}
@@ -207,35 +206,28 @@ async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
                 className="w-full rounded-xl border border-zinc-200"
               />
 
-           <button
-  type="button"
-  onClick={generateImage}
-  disabled={isLoading}
-  className="w-full rounded-xl border border-zinc-300 bg-white px-5 py-3 font-medium text-zinc-900 disabled:opacity-60"
->
-  {isLoading
-    ? "در حال تولید تصویر جدید..."
-    : "یک تصویر دیگر با همین اطلاعات"}
-</button>
+              {caption && (
+                <div className="rounded-xl border bg-white p-4">
+                  <h2 className="mb-3 font-semibold">
+                    کپشن پیشنهادی
+                  </h2>
 
-              <details className="rounded-lg bg-white p-4">
-                <summary className="cursor-pointer font-medium">
-                  نمایش جزئیات فنی
-                </summary>
+                  <p className="whitespace-pre-wrap text-sm">
+                    {caption}
+                  </p>
+                </div>
+              )}
 
-                <pre className="mt-3 whitespace-pre-wrap text-xs text-zinc-700">
-                  {JSON.stringify(
-                    {
-                      prompt: apiResult?.prompt,
-                      mediaType: apiResult?.mediaType,
-                      hasImageUrl: Boolean(apiResult?.imageUrl),
-                      hasImageBase64: Boolean(apiResult?.imageBase64),
-                    },
-                    null,
-                    2
-                  )}
-                </pre>
-              </details>
+              <button
+                type="button"
+                onClick={generateImage}
+                disabled={isLoading}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-5 py-3 font-medium text-zinc-900 disabled:opacity-60"
+              >
+                {isLoading
+                  ? "در حال تولید تصویر جدید..."
+                  : "یک تصویر دیگر با همین اطلاعات"}
+              </button>
             </div>
           )}
         </form>

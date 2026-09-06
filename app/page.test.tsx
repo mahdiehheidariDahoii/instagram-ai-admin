@@ -3,10 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import Home from "./page";
 
-
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 test("shows regenerate button after an image is generated", async () => {
@@ -22,6 +21,7 @@ test("shows regenerate button after an image is generated", async () => {
         imageUrl: null,
         imageBase64: "abc123",
         mediaType: "image/png",
+        caption: "کپشن تستی",
       }),
     })
   );
@@ -41,6 +41,7 @@ test("shows regenerate button after an image is generated", async () => {
   ).toBeInTheDocument();
 });
 
+
 test("generates another image when regenerate button is clicked", async () => {
   const user = userEvent.setup();
 
@@ -52,6 +53,7 @@ test("generates another image when regenerate button is clicked", async () => {
       imageUrl: null,
       imageBase64: "abc123",
       mediaType: "image/png",
+      caption: "کپشن تستی",
     }),
   });
 
@@ -71,6 +73,5 @@ test("generates another image when regenerate button is clicked", async () => {
 
   await user.click(regenerateButton);
 
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenCalledTimes(4);
 });
-
