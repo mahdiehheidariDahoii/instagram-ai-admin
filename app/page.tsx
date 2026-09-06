@@ -43,40 +43,43 @@ export default function Home() {
     }));
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
 
-    setIsLoading(true);
-    setError("");
-    setApiResult(null);
+  async function generateImage() {
+  setIsLoading(true);
+  setError("");
 
-    try {
-      const response = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formData),
-      });
+  try {
+    const response = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(formData),
+    });
 
-      const data = await response.json();
+    const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "درخواست به API موفق نبود");
-      }
-
-      setApiResult(data);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "ارسال اطلاعات به API با خطا مواجه شد"
-      );
-      console.error(err);
-    } finally {
-      setIsLoading(false);
+    if (!response.ok) {
+      throw new Error(data.error || "درخواست به API موفق نبود");
     }
+
+    setApiResult(data);
+  } catch (err) {
+    setError(
+      err instanceof Error
+        ? err.message
+        : "ارسال اطلاعات به API با خطا مواجه شد"
+    );
+    console.error(err);
+  } finally {
+    setIsLoading(false);
   }
+}
+
+async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  await generateImage();
+}
 
   const imageSrc =
     apiResult?.imageUrl ||
@@ -203,6 +206,17 @@ export default function Home() {
                 alt="Generated Instagram Post"
                 className="w-full rounded-xl border border-zinc-200"
               />
+
+           <button
+  type="button"
+  onClick={generateImage}
+  disabled={isLoading}
+  className="w-full rounded-xl border border-zinc-300 bg-white px-5 py-3 font-medium text-zinc-900 disabled:opacity-60"
+>
+  {isLoading
+    ? "در حال تولید تصویر جدید..."
+    : "یک تصویر دیگر با همین اطلاعات"}
+</button>
 
               <details className="rounded-lg bg-white p-4">
                 <summary className="cursor-pointer font-medium">
