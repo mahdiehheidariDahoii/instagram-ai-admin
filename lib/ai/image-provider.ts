@@ -1,45 +1,54 @@
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.GAPGPT_API_KEY,
-  baseURL: process.env.GAPGPT_BASE_URL || "https://api.gapgpt.app/v1",
-});
-
 export async function generateInstagramImage(prompt: string) {
-  const model = process.env.GAPGPT_IMAGE_MODEL;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const model =
+    process.env.CLOUDFLARE_IMAGE_MODEL ||
+    "@cf/black-forest-labs/flux-1-schnell";
 
-  if (!model) {
-    throw new Error("GAPGPT_IMAGE_MODEL is not set in .env.local");
+  if (!accountId) {
+    throw new Error("CLOUDFLARE_ACCOUNT_ID is not set in .env.local");
   }
 
-  const result = await client.images.generate({
-    model,
-    prompt,
-    size: "1024x1024",
-    quality: "high",
-    output_format: "png",
-  });
+  if (!apiToken) {
+    throw new Error("CLOUDFLARE_API_TOKEN is not set in .env.local");
+  }
 
-  const firstImage = result.data?.[0] as
-    | {
-        url?: string;
-        b64_json?: string;
-        media_type?: string;
-      }
-    | undefined;
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+      }),
+    }
+  );
 
-  const imageUrl = firstImage?.url;
-  const imageBase64 = firstImage?.b64_json;
-  const mediaType = firstImage?.media_type || "image/png";
+  const result = await response.json();
 
-  if (!imageUrl && !imageBase64) {
-    console.error("RAW IMAGE RESPONSE:", result);
-    throw new Error("No image data was returned from GapGPT.");
+  if (!response.ok || result.success === false) {
+    console.error("CLOUDFLARE IMAGE ERROR:", result);
+
+    throw new Error(
+      result?.errors?.[0]?.message ||
+        result?.result?.error ||
+        "Cloudflare image generation failed."
+    );
+  }
+
+  const imageBase64 = result?.result?.image;
+
+  if (!imageBase64) {
+    console.error("RAW CLOUDFLARE IMAGE RESPONSE:", result);
+    throw new Error("No base64 image was returned from Cloudflare.");
   }
 
   return {
-    imageUrl: imageUrl ?? null,
-    imageBase64: imageBase64 ?? null,
-    mediaType,
+    imageUrl: null,
+    imageBase64,
+    mediaType: "image/jpeg",
   };
 }

@@ -8,29 +8,22 @@ type CaptionInput = {
 
 export function buildCaptionPrompt(input: CaptionInput) {
   return `
-You are an expert Instagram content strategist.
+Create ONE final Instagram caption in Persian.
 
-Create a professional Instagram caption.
-
-Business:
-${input.business}
-
-Target audience:
-${input.audience}
-
-Post topic:
-${input.topic}
-
-Brand style:
-${input.style || "professional"}
-
-Additional notes:
-${input.extra || "none"}
+Business: ${input.business}
+Audience: ${input.audience}
+Topic: ${input.topic}
+Tone: ${input.style || "professional"}
+Extra instructions: ${input.extra || "none"}
 
 Requirements:
-- Write in Persian.
-- Make it engaging and suitable for Instagram.
-- Do not use fake claims.
-- Include a clear call to action when appropriate.
-`;
+- Return only the caption.
+- Do not provide alternatives.
+- Do not explain your reasoning.
+- Do not add strategy notes.
+- Do not invent facts, services, guarantees, prices, addresses, phone numbers, or claims not provided in the input.
+- Maximum 120 Persian words.
+- Keep the caption natural, engaging, and ready to publish.
+- Include a simple call to action only when appropriate.
+`.trim();
 }

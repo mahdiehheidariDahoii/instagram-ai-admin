@@ -8,18 +8,12 @@ type BuildImagePromptInput = {
 
 export function buildImagePrompt(input: BuildImagePromptInput) {
   return `
-Create a high-quality Instagram post image.
-
-Business type: ${input.business}
-Target audience: ${input.audience}
-Page style: ${input.style}
-Post topic: ${input.topic}
-Additional notes: ${input.extra}
-
-Requirements:
-- The image must be visually appealing and suitable for Instagram.
-- The style should match the page identity.
-- The image should be professional and high quality.
-- Do not add any text inside the image unless explicitly requested.
+Subject: ${input.topic}
+Context: ${input.business}
+Style: ${input.style}
+Composition: clear main subject, balanced Instagram-ready composition
+Lighting: professional lighting appropriate to the visual style
+Details: ${input.extra}
+Avoid: text, watermark, clutter, distorted geometry, duplicated objects
 `.trim();
 }

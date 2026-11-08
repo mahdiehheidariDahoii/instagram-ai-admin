@@ -5,73 +5,53 @@ import Home from "./page";
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
-test("shows regenerate button after an image is generated", async () => {
+test("generates the image prompt locally without calling the prompt API", async () => {
   const user = userEvent.setup();
-
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        success: true,
-        prompt: "test prompt",
-        imageUrl: null,
-        imageBase64: "abc123",
-        mediaType: "image/png",
-        caption: "کپشن تستی",
-      }),
-    })
-  );
-
-  render(<Home />);
-
-  await user.click(
-    screen.getByRole("button", {
-      name: "تولید تصویر",
-    })
-  );
-
-  expect(
-    await screen.findByRole("button", {
-      name: "یک تصویر دیگر با همین اطلاعات",
-    })
-  ).toBeInTheDocument();
-});
-
-
-test("generates another image when regenerate button is clicked", async () => {
-  const user = userEvent.setup();
-
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      success: true,
-      prompt: "test prompt",
-      imageUrl: null,
-      imageBase64: "abc123",
-      mediaType: "image/png",
-      caption: "کپشن تستی",
-    }),
-  });
-
+  const fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
 
   render(<Home />);
 
+  await user.type(screen.getByLabelText("موضوع / محصول"), "عطر ورساچه برایت کریستال");
+  await user.type(screen.getByLabelText("هدف پست"), "فروش محصول");
+  await user.click(screen.getByRole("button", { name: "تولید پرامپت" }));
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(await screen.findByText(/عطر ورساچه برایت کریستال/)).toBeInTheDocument();
+});
+
+test("uses the selected reference image in the local prompt strategy", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal("fetch", vi.fn());
+
+  render(<Home />);
+
+  const file = new File(["image"], "product.jpg", { type: "image/jpeg" });
+  await user.upload(screen.getByLabelText("عکس مرجع"), file);
+  await user.type(screen.getByLabelText("موضوع / محصول"), "بازی کاتان");
+  await user.type(screen.getByLabelText("هدف پست"), "معرفی بازی");
+  await user.click(screen.getByRole("button", { name: "تولید پرامپت" }));
+
+  expect(await screen.findByText(/source of truth/)).toBeInTheDocument();
+});
+
+test("copies the generated local prompt", async () => {
+  const user = userEvent.setup();
+  const writeText = vi.spyOn(navigator.clipboard, "writeText");
+  vi.stubGlobal("fetch", vi.fn());
+
+  render(<Home />);
+
+  await user.type(screen.getByLabelText("موضوع / محصول"), "بازی کاتان");
+  await user.click(screen.getByRole("button", { name: "تولید پرامپت" }));
   await user.click(
-    screen.getByRole("button", {
-      name: "تولید تصویر",
-    })
+    await screen.findByRole("button", { name: "کپی پرامپت" })
   );
 
-  const regenerateButton = await screen.findByRole("button", {
-    name: "یک تصویر دیگر با همین اطلاعات",
-  });
-
-  await user.click(regenerateButton);
-
-  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(writeText).toHaveBeenCalledWith(
+    expect.stringContaining("بازی کاتان")
+  );
 });

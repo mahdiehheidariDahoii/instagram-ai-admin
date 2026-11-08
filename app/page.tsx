@@ -1,40 +1,39 @@
 "use client";
 
 import { useState } from "react";
+import { buildLocalImagePrompt } from "../lib/ai/local-prompt-builder";
+
+type ContentType = "product" | "service" | "event";
 
 type FormDataType = {
-  business: string;
-  audience: string;
-  style: string;
+  contentType: ContentType;
   topic: string;
+  goal: string;
   extra: string;
 };
 
-type ApiResultType = {
+/*
+type PromptApiResult = {
   success: boolean;
   prompt?: string;
-  imageUrl?: string | null;
-  imageBase64?: string | null;
-  mediaType?: string;
   error?: string;
 };
+*/
 
 export default function Home() {
   const [formData, setFormData] = useState<FormDataType>({
-    business: "",
-    audience: "",
-    style: "",
+    contentType: "product",
     topic: "",
+    goal: "",
     extra: "",
   });
-
   const [isLoading, setIsLoading] = useState(false);
-  const [apiResult, setApiResult] = useState<ApiResultType | null>(null);
-  const [caption, setCaption] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [error, setError] = useState("");
 
   function handleChange(
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) {
     const { name, value } = event.target;
 
@@ -44,68 +43,66 @@ export default function Home() {
     }));
   }
 
-  async function generateCaption() {
-    const response = await fetch("/api/generate-caption", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(formData),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "خطا در تولید کپشن");
-    }
-
-    setCaption(data.caption);
-  }
-
-  async function generateImage() {
+  function generatePrompt() {
     setIsLoading(true);
     setError("");
+    setPrompt("");
+
+    const localPrompt = buildLocalImagePrompt({
+      ...formData,
+      hasReferenceImage: Boolean(referenceImage),
+    });
+
+    setPrompt(localPrompt);
+    setIsLoading(false);
+  }
+
+  /*
+  // Future AI interpreter path. Kept commented for later reactivation.
+  async function generatePromptWithApi() {
+    setIsLoading(true);
+    setError("");
+    setPrompt("");
 
     try {
-      const response = await fetch("/api/generate-image", {
+      const response = await fetch("/api/generate-prompt", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          hasReferenceImage: Boolean(referenceImage),
+        }),
       });
 
-      const data = await response.json();
+      const data: PromptApiResult = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "درخواست به API موفق نبود");
+        throw new Error(data.error || "تولید پرامپت ناموفق بود");
       }
 
-      setApiResult(data);
-
-      await generateCaption();
+      setPrompt(data.prompt || "");
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "ارسال اطلاعات با خطا مواجه شد"
+          : "تولید پرامپت با خطا مواجه شد"
       );
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
   }
+  */
+
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(prompt);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await generateImage();
+    await generatePrompt();
   }
-
-  const imageSrc =
-    apiResult?.imageUrl ||
-    (apiResult?.imageBase64
-      ? `data:${apiResult.mediaType || "image/png"};base64,${apiResult.imageBase64}`
-      : null);
 
   return (
     <main
@@ -115,12 +112,10 @@ export default function Home() {
       <div className="mx-auto max-w-2xl">
         <div className="mb-10">
           <h1 className="text-3xl font-bold">
-            ادمین هوشمند اینستاگرام
+            سازنده پرامپت اینستاگرام
           </h1>
-
           <p className="mt-3 text-zinc-600">
-            اطلاعات پایه پیج را وارد کن تا یک تصویر مناسب برای پست اینستاگرام
-            تولید کنیم.
+            اطلاعات این پست را وارد کن تا یک پرامپت نهایی برای تولید تصویر بسازیم.
           </p>
         </div>
 
@@ -128,55 +123,78 @@ export default function Home() {
           onSubmit={handleSubmit}
           className="space-y-6 rounded-2xl bg-white p-8 shadow-sm"
         >
-          {[
-            {
-              name: "business",
-              label: "حوزه فعالیت پیج",
-              placeholder: "مثلاً فروش دستگاه‌های CNC سنگ",
-            },
-            {
-              name: "audience",
-              label: "مخاطب هدف",
-              placeholder: "مثلاً صاحبان کارگاه‌های سنگ و کارخانه‌ها",
-            },
-            {
-              name: "style",
-              label: "سبک پیج",
-              placeholder: "مثلاً حرفه‌ای، مینیمال و صنعتی",
-            },
-            {
-              name: "topic",
-              label: "موضوع این پست",
-              placeholder: "مثلاً دقت برش دستگاه CNC پنج محور",
-            },
-          ].map((item) => (
-            <div key={item.name}>
-              <label className="mb-2 block font-medium">
-                {item.label}
-              </label>
-
-              <input
-                name={item.name}
-                value={formData[item.name as keyof FormDataType]}
-                onChange={handleChange}
-                className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
-                placeholder={item.placeholder}
-              />
-            </div>
-          ))}
+          <div>
+            <label htmlFor="contentType" className="mb-2 block font-medium">
+              نوع محتوا
+            </label>
+            <select
+              id="contentType"
+              name="contentType"
+              value={formData.contentType}
+              onChange={handleChange}
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
+            >
+              <option value="product">محصول</option>
+              <option value="service">خدمت</option>
+              <option value="event">ایونت / کانسپت</option>
+            </select>
+          </div>
 
           <div>
-            <label className="mb-2 block font-medium">
+            <label htmlFor="referenceImage" className="mb-2 block font-medium">
+              عکس مرجع
+            </label>
+            <input
+              id="referenceImage"
+              type="file"
+              accept="image/*"
+              onChange={(event) =>
+                setReferenceImage(event.target.files?.[0] || null)
+              }
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="topic" className="mb-2 block font-medium">
+              موضوع / محصول
+            </label>
+            <input
+              id="topic"
+              name="topic"
+              value={formData.topic}
+              onChange={handleChange}
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
+              placeholder="مثلاً عطر ورساچه برایت کریستال"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="goal" className="mb-2 block font-medium">
+              هدف پست
+            </label>
+            <input
+              id="goal"
+              name="goal"
+              value={formData.goal}
+              onChange={handleChange}
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none"
+              placeholder="مثلاً فروش محصول یا معرفی بازی"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="extra" className="mb-2 block font-medium">
               توضیحات اضافه
             </label>
-
             <textarea
+              id="extra"
               name="extra"
               value={formData.extra}
               onChange={handleChange}
               rows={4}
               className="w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 outline-none"
-              placeholder="مثلاً تصویر واقع‌گرایانه، مدرن، بدون نوشته"
+              placeholder="مثلاً این بازی یکی از بازی‌های کافه من است"
             />
           </div>
 
@@ -185,7 +203,7 @@ export default function Home() {
             disabled={isLoading}
             className="w-full rounded-xl bg-zinc-900 px-5 py-3 font-medium text-white disabled:opacity-60"
           >
-            {isLoading ? "در حال تولید..." : "تولید تصویر"}
+            {isLoading ? "در حال ساخت..." : "تولید پرامپت"}
           </button>
 
           {error && (
@@ -194,39 +212,18 @@ export default function Home() {
             </div>
           )}
 
-          {imageSrc && (
-            <div className="space-y-4 rounded-xl bg-zinc-100 p-4">
-              <p className="font-medium">
-                تصویر تولیدشده:
-              </p>
-
-              <img
-                src={imageSrc}
-                alt="Generated Instagram Post"
-                className="w-full rounded-xl border border-zinc-200"
-              />
-
-              {caption && (
-                <div className="rounded-xl border bg-white p-4">
-                  <h2 className="mb-3 font-semibold">
-                    کپشن پیشنهادی
-                  </h2>
-
-                  <p className="whitespace-pre-wrap text-sm">
-                    {caption}
-                  </p>
-                </div>
-              )}
-
+          {prompt && (
+            <div className="space-y-3 rounded-xl bg-zinc-100 p-4">
+              <p className="font-medium">پرامپت نهایی:</p>
+              <pre className="whitespace-pre-wrap text-left text-sm" dir="ltr">
+                {prompt}
+              </pre>
               <button
                 type="button"
-                onClick={generateImage}
-                disabled={isLoading}
-                className="w-full rounded-xl border border-zinc-300 bg-white px-5 py-3 font-medium text-zinc-900 disabled:opacity-60"
+                onClick={copyPrompt}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-5 py-3 font-medium text-zinc-900"
               >
-                {isLoading
-                  ? "در حال تولید تصویر جدید..."
-                  : "یک تصویر دیگر با همین اطلاعات"}
+                کپی پرامپت
               </button>
             </div>
           )}
