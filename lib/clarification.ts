@@ -22,8 +22,11 @@ export function buildClarificationPrompt(profile:unknown,brief:unknown,pkg:unkno
  "پاسخ را فقط در بلوک کد Markdown با زبان json و با یک شیء JSON معتبر بنویس. کلیدها دقیقاً این‌ها باشند:",
  '{"title":"...","concept":"...","visualDirection":"...","scenes":[{"seconds":"تصویر ثابت","shot":"...","onScreenText":"...","audio":""}],"caption":"...","callToAction":"...","productionNotes":["..."],"unknowns":["..."]}',
  "نبود عکس مشتری مانع ادامه نیست. اگر مرجع تصویری نداریم، در مرحله تولید تصویر AI باید با ابزار جست‌وجوی وب مرجع معتبر همان مدل را پیدا و اعتبارسنجی کند. اگر دسترسی وب وجود ندارد، تصویر بسته‌بندی را جعل نکند و وضعیت نیازمند تأیید مرجع را در unknowns نگه دارد؛ فقط فقدان عکس مشتری را دلیل توقف قرار نده. هر سؤال بدون پاسخ را در unknowns نگه دار. این فقط بسته تولید است، نه مجوز انتشار.",
- "BusinessProfile:",JSON.stringify(profile,null,2),"ContentBrief:",JSON.stringify(brief,null,2),"OriginalCreativePackage:",JSON.stringify(pkg,null,2),"QualityReview:",JSON.stringify(review,null,2),
- "VerifiedClarifications:",JSON.stringify(questions.filter(q=>answers[q.id]?.trim()).map(q=>({question:q.question,answer:answers[q.id]})),null,2)].join("\n\n");
+ "BusinessProfile:",JSON.stringify(profile),"ContentBrief:",JSON.stringify(brief),"OriginalCreativePackage:",JSON.stringify(pkg),
+ "QA verdict:",review.verdict,
+ "QA required changes:",JSON.stringify(review.requiredChanges),
+ "QA failed/warning checks:",JSON.stringify(review.checks.filter(c=>c.status!=="pass").map(c=>({criterion:c.criterion,evidence:c.evidence,fix:c.fix}))),
+ "VerifiedClarifications:",JSON.stringify(questions.filter(q=>answers[q.id]?.trim()).map(q=>({question:q.question,answer:answers[q.id]})))].join("\n\n");
 }
 
 import type { Profile } from "./business-profile";
@@ -36,12 +39,9 @@ export function fingerprint(profile:Profile,brief:ContentBrief){
  return JSON.stringify([profile.businessType,profile.description,profile.products,profile.audience,profile.market,profile.goal,brief.format]);
 }
 export function questionsFor(_profile:Profile,_brief:ContentBrief):PlanningQuestion[]{
- return [
- {id:"product",question:"کدام محصول مشخص معرفی شود؟",hint:"نام محصول را بنویسید یا انتخاب را به AI بسپارید.",critical:true},
- {id:"availability",question:"آیا محصول انتخابی واقعاً برای فروش موجود است؟",hint:"موجودی را صریحاً تأیید یا رد کنید؛ واگذاری به AI مجاز نیست.",critical:true},
- {id:"visual",question:"تصویر یا مرجع معتبر برای سوژه اصلی دارید؟",hint:"اختیاری؛ اگر ندارید، جست‌وجو و انتخاب مرجع را به AI بسپارید.",critical:false},
- {id:"action",question:"مخاطب دقیقاً چگونه اقدام یا سفارش ثبت کند؟",hint:"روش اقدام را مشخص کنید یا پیشنهاد آن را به AI بسپارید.",critical:true}
- ];
+ // Planning intent is collected explicitly in the one-page planning form.
+ // Product availability is never presumed or demanded for service businesses.
+ return [];
 }
 export function decisionReady(q:PlanningQuestion,d?:Decision){
  if(!d)return false;

@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import {workflow,advance} from "../../lib/workflow";
 import { useEffect, useState } from "react";
 import { parseCreativePackage, type CreativePackage } from "../../lib/creative-package";
 import { parseQualityReview, type QualityReview } from "../../lib/quality-review";
@@ -8,6 +9,7 @@ const base = "instagram-ai-admin:";
 const answerKey = base+"revision-answers:v1";
 const revisionKey = base+"revised-package:v1";
 const historyKey = base+"revision-history:v1";
+const bridgeChannel = "INSTAGRAM_AI_ADMIN_BRIDGE_V1";
 export default function RevisionPage(){
  const [qa,setQa]=useState<QualityReview|null>(null);
  const [original,setOriginal]=useState<CreativePackage|null>(null);
@@ -18,6 +20,7 @@ export default function RevisionPage(){
  const [raw,setRaw]=useState("");
  const [message,setMessage]=useState("");
  const [loaded,setLoaded]=useState(false);
+ const [bridgeLoading,setBridgeLoading]=useState(false);
  const [history,setHistory]=useState<CreativePackage[]>([]);
  useEffect(()=>{
   try{
@@ -49,14 +52,80 @@ export default function RevisionPage(){
   try{await navigator.clipboard.writeText(buildClarificationPrompt(profile,brief,original,qa,active,answers));setMessage("درخواست اصلاح با پاسخ‌های تأییدشده کپی شد.");}
   catch{setMessage("کپی ناموفق بود؛ مجوز Clipboard را بررسی کن.");}
  }
+ function storeRevision(parsed:CreativePackage,source:string){
+   const previous=JSON.parse(localStorage.getItem(historyKey)||"[]") as CreativePackage[];
+   const next=[...previous,parsed];
+   localStorage.setItem(revisionKey,JSON.stringify(parsed));
+   localStorage.setItem(historyKey,JSON.stringify(next));
+   setRevised(parsed);setHistory(next);setRaw(JSON.stringify(parsed,null,2));
+   setMessage(source+" نسخه اصلاح‌شده ذخیره شد؛ برای Re-QA از دکمه پایین استفاده کن.");
+ }
+ function generateWithBridge(){
+   if(!qa||!original)return;
+   if(missing.length){setMessage("ابتدا سؤال‌های ضروری را پاسخ بده.");return;}
+   localStorage.setItem(answerKey,JSON.stringify(answers));
+   const id=crypto.randomUUID();
+   sessionStorage.setItem(base+"revision-bridge-id",id);
+   setBridgeLoading(true);
+   setMessage("درخواست اصلاح به ChatGPT ارسال می‌شود...");
+   window.postMessage({channel:bridgeChannel,type:"DRAFT_CHATGPT",requestId:id,
+     payload:{task:"smart-revision",project:"Instagram AI Admin"},
+     prompt:buildClarificationPrompt(profile,brief,original,qa,active,answers),
+     responseKind:"revision",autoSend:true},location.origin);
+ }
+ useEffect(()=>{
+   if(!bridgeLoading)return;
+   const id=sessionStorage.getItem(base+"revision-bridge-id");
+   if(!id)return;
+   let previous="",stable=0;
+   const started=Date.now();
+   const handle=(event:MessageEvent)=>{
+     if(event.source!==window||event.origin!==location.origin)return;
+     const data=event.data;
+     if(data?.channel!==bridgeChannel||data.type!=="RESPONSE")return;
+     if(data.requestId===id&&!data.ok){
+       cleanup();setBridgeLoading(false);setMessage(data.error||"خطای ارتباط با افزونه");return;
+     }
+     if(data.requestId===id&&data.ok&&data.drafted)setMessage("درخواست ارسال شد؛ منتظر نسخه اصلاح‌شده...");
+     if(!data.captured||!data.ok||data.originalRequestId!==id||typeof data.text!=="string")return;
+     try{
+       const parsed=parseCreativePackage(data.text);
+       if((brief as {format?:string}|null)?.format==="single-image"&&parsed.scenes.length!==1)return;
+       if(data.text===previous)stable++;else{previous=data.text;stable=1;}
+       if(stable<2)return;
+       storeRevision(parsed,"دریافت خودکار موفق بود.");
+       setBridgeLoading(false);cleanup();advance("revision","final");
+     }catch{/* wait for complete valid response */}
+   };
+   const poll=()=>{
+     if(Date.now()-started>180000){
+       cleanup();setBridgeLoading(false);
+       setMessage("مهلت دریافت خودکار تمام شد؛ پاسخ را می‌توانی دستی وارد کنی.");return;
+     }
+     window.postMessage({channel:bridgeChannel,type:"CAPTURE_RESPONSE",requestId:crypto.randomUUID(),auto:true},location.origin);
+   };
+   const timer=window.setInterval(poll,3000);
+   const cleanup=()=>{window.clearInterval(timer);window.removeEventListener("message",handle);};
+   window.addEventListener("message",handle);
+   return cleanup;
+ },[bridgeLoading]);
+ useEffect(()=>{
+   if(!loaded||!qa||!original||bridgeLoading)return;
+   const flow=workflow();
+   if(!flow?.active||flow.stage!=="revision")return;
+   if(missing.length){
+     setMessage("برای ادامه خودکار، پاسخ‌های ضروری را تکمیل کنید؛ سپس اصلاح خودکار آغاز می‌شود.");
+     return;
+   }
+   if(sessionStorage.getItem(base+"workflow-revision-started")==="1")return;
+   sessionStorage.setItem(base+"workflow-revision-started","1");
+   generateWithBridge();
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[loaded,qa,original,answers]);
  function save(){
   try{
    const parsed=parseCreativePackage(raw);
-   const next=[...history,parsed];
-   localStorage.setItem(revisionKey,JSON.stringify(parsed));
-   localStorage.setItem(historyKey,JSON.stringify(next));
-   setRevised(parsed);setHistory(next);setRaw("");
-   setMessage("نسخه اصلاح‌شده ذخیره شد. برای Re-QA از دکمه پایین استفاده کن.");
+   storeRevision(parsed,"");
   }catch(e){setMessage(e instanceof Error?e.message:"JSON نامعتبر است.");}
  }
  function applyForQA(){
@@ -76,8 +145,8 @@ export default function RevisionPage(){
     {active.map(q=><div key={q.id}><label htmlFor={"clarify-"+q.id} className="mb-2 block text-sm font-semibold">{q.question} {q.required?<span className="text-red-700">(ضروری)</span>:<span className="text-slate-500">(اختیاری)</span>}</label><textarea id={"clarify-"+q.id} value={answers[q.id]||""} onChange={e=>update(q.id,e.target.value)} rows={2} className="w-full rounded-lg border p-3" placeholder="پاسخ تأییدشده مشتری؛ اطلاعات را حدس نزنید"/></div>)}
     {!active.length&&<p className="text-sm text-slate-600">سؤال مشخصی از گزارش QA استخراج نشد؛ اصلاحات کیفی در پرامپت اعمال می‌شوند.</p>}
     {missing.length>0&&<p className="text-sm text-red-700">برای ادامه، {missing.length} پاسخ ضروری باقی مانده است.</p>}
-   </div><div className="mt-5 flex flex-wrap gap-3"><button onClick={persistAnswers} className="rounded-xl border px-5 py-3 font-semibold">ذخیره پاسخ‌ها</button><button disabled={missing.length>0} onClick={copy} className="rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white disabled:opacity-40">ذخیره و کپی درخواست اصلاح</button></div></section>
-   <section className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">۲. ثبت سناریوی اصلاح‌شده</h2><p className="mt-2 text-sm text-slate-600">در نسخه فعلی بدون API پولی، درخواست اصلاح را کپی و JSON خروجی را اینجا وارد کن. پاسخ‌های فرم دیگر لازم نیست در چت نوشته شوند.</p><textarea dir="ltr" rows={8} value={raw} onChange={e=>setRaw(e.target.value)} className="mt-4 w-full rounded-xl border p-3 font-mono text-xs" placeholder='{"title":"...", "scenes":[...], ...}'/><button disabled={!raw.trim()} onClick={save} className="mt-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white disabled:opacity-40">اعتبارسنجی و ذخیره نسخه اصلاح‌شده</button></section>
+   </div><div className="mt-5 flex flex-wrap gap-3"><button onClick={persistAnswers} className="rounded-xl border px-5 py-3 font-semibold">ذخیره پاسخ‌ها</button><button disabled={missing.length>0||bridgeLoading} onClick={generateWithBridge} className="rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-40">{bridgeLoading?"در حال دریافت اصلاحات...":"اصلاح خودکار با ChatGPT Bridge"}</button><button disabled={missing.length>0} onClick={copy} className="rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white disabled:opacity-40">ذخیره و کپی درخواست اصلاح</button></div></section>
+   <section className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">۲. ثبت سناریوی اصلاح‌شده</h2><p className="mt-2 text-sm text-slate-600">با دکمه اصلاح خودکار، خروجی ChatGPT مستقیماً دریافت و ذخیره می‌شود. ورود دستی JSON نیز به‌عنوان روش جایگزین باقی مانده است.</p><textarea dir="ltr" rows={8} value={raw} onChange={e=>setRaw(e.target.value)} className="mt-4 w-full rounded-xl border p-3 font-mono text-xs" placeholder='{"title":"...", "scenes":[...], ...}'/><button disabled={!raw.trim()} onClick={save} className="mt-3 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white disabled:opacity-40">اعتبارسنجی و ذخیره نسخه اصلاح‌شده</button></section>
    {revised&&<section className="rounded-2xl bg-white p-6 shadow-sm"><h2 className="text-xl font-bold">۳. نسخه اصلاح‌شده</h2><p className="mt-3 font-semibold">{revised.title}</p><p className="mt-2 text-sm leading-7">{revised.concept}</p><p className="mt-3 text-sm">تعداد نماها: {revised.scenes.length} · نسخه‌های اصلاح‌شده ذخیره‌شده: {history.length}</p><button onClick={applyForQA} className="mt-5 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white">فعال‌سازی نسخه برای Re-QA</button><Link href="/quality" className="mr-4 text-indigo-700 underline">رفتن به QA</Link>{!missing.length&&<Link href="/final-image-prompt" className="mr-4 inline-block rounded-xl border px-4 py-3 text-indigo-700">مرحله ششم: پرامپت نهایی تصویر</Link>}</section>}
    {message&&<p role="status" className="rounded-xl bg-white p-4 text-sm text-indigo-700">{message}</p>}
   </>}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import {workflow,advance} from "../../lib/workflow";
 import { useEffect, useState } from "react";
 import { type ContentBrief } from "../../lib/content-planning";
 import { type Profile } from "../../lib/business-profile";
@@ -9,6 +10,7 @@ import { parseCreativePackage, type CreativePackage } from "../../lib/creative-p
 
 const briefKey = "instagram-ai-admin:content-brief:v1";
 const packageKey = "instagram-ai-admin:creative-package:v1";
+const bridgeChannel = "INSTAGRAM_AI_ADMIN_BRIDGE_V1";
 export default function ProductionPage() {
   const [brief, setBrief] = useState<ContentBrief | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -16,6 +18,7 @@ export default function ProductionPage() {
   const [input, setInput] = useState("");
   const [message, setMessage] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [bridgeLoading, setBridgeLoading] = useState(false);
   useEffect(() => {
     try {
       const b = localStorage.getItem(briefKey);
@@ -31,10 +34,10 @@ export default function ProductionPage() {
     if (!brief || !profile) return {valid:false, instructions:""};
     try { const raw=localStorage.getItem(clarificationKey);if(!raw)return {valid:false,instructions:""};const state=JSON.parse(raw) as ClarificationState;const qs=questionsFor(profile,brief);return {valid:state.fingerprint===fingerprint(profile,brief)&&unresolved(qs,state.decisions).length===0,instructions:decisionInstructions(qs,state.decisions)}; }catch{return {valid:false,instructions:""};}
   }
-  async function copyRequest() {
-    if (!brief) return;
-    const clarification=clarificationStatus();if(!clarification.valid){setMessage("پیش از تولید، اطلاعات ضروری را در مرحله برنامه‌ریزی تعیین تکلیف و ذخیره کن.");return;}
-    const request = [
+  function buildRequest() {
+    if (!brief) return "";
+    const clarification=clarificationStatus();
+    return [
       "به عنوان کارگردان خلاق و تولیدکننده حرفه‌ای محتوای اینستاگرام، از ContentBrief زیر یک بسته اجرایی واقعی بساز.",
       brief.format === "single-image" ? "خروجی یک پست تک‌تصویری است: scenes دقیقاً یک عضو داشته باشد؛ seconds برابر «تصویر ثابت»، shot شرح طراحی و ترکیب‌بندی، onScreenText متن کوتاه روی تصویر، audio رشته خالی باشد. کپشن و CTA جداگانه ارائه شوند. هیچ شات‌لیست و دستور فیلم‌برداری تولید نکن." : brief.format === "carousel" ? "خروجی کاروسل است؛ scenes اسلایدهای مجزا هستند، seconds شماره اسلاید و audio رشته خالی باشد." : "خروجی ریلز است؛ scenes شات‌لیست زمان‌بندی‌شده و قابل فیلم‌برداری باشد.",
       "محدودیت‌های پروفایل، به‌خصوص عدم نمایش چهره را رعایت کن. جزئیات اثبات‌نشده، قیمت، آدرس یا رویداد اختراع نکن.",
@@ -43,9 +46,74 @@ export default function ProductionPage() {
       "تصمیم‌های مشتری و حدود اختیار AI:", clarification.instructions, "هر مورد واگذارشده را تا حد ممکن حل کن؛ بدون منبع معتبر، واقعیت محصول یا موجودی را قطعی فرض نکن. جای‌خالی تصویری را خروجی نهایی معرفی محصول جا نزن.",
       "ContentBrief:", JSON.stringify(brief, null, 2), "BusinessProfile:", JSON.stringify(profile, null, 2)
     ].join("\n\n");
-    try { await navigator.clipboard.writeText(request); setMessage("درخواست کپی شد؛ آن را در ChatGPT ارسال کن."); }
+  }
+  async function copyRequest() {
+    if (!brief) return;
+    if (!clarificationStatus().valid) { setMessage("پیش از تولید، اطلاعات ضروری را در مرحله برنامه‌ریزی تعیین تکلیف و ذخیره کن."); return; }
+    try { await navigator.clipboard.writeText(buildRequest()); setMessage("درخواست کپی شد؛ آن را در ChatGPT ارسال کن."); }
     catch { setMessage("کپی انجام نشد؛ دسترسی Clipboard را بررسی کن."); }
   }
+  useEffect(() => {
+    if (!bridgeLoading) return;
+    const id = sessionStorage.getItem("instagram-ai-admin:production-bridge-id");
+    if (!id) return;
+    let previous = "";
+    let stable = 0;
+    const started = Date.now();
+    const handle = (event: MessageEvent) => {
+      if (event.source !== window || event.origin !== location.origin) return;
+      const data = event.data;
+      if (data?.channel !== bridgeChannel || data.type !== "RESPONSE") return;
+      if (data.requestId === id && !data.ok) {
+        cleanup(); setBridgeLoading(false); setMessage(data.error || "خطای ارتباط با افزونه"); return;
+      }
+      if (data.requestId === id && data.ok && data.drafted) setMessage("درخواست ارسال شد؛ در انتظار بسته تولید...");
+      if (!data.captured || !data.ok || data.originalRequestId !== id || typeof data.text !== "string") return;
+      try {
+        const parsed = parseCreativePackage(data.text);
+        if (brief?.format === "single-image" && parsed.scenes.length !== 1) return;
+        if (data.text === previous) stable++; else { previous = data.text; stable = 1; }
+        if (stable < 2) return;
+        localStorage.removeItem("instagram-ai-admin:quality-review:v1");
+        localStorage.setItem(packageKey, JSON.stringify(parsed));
+        setInput(data.text); setResult(parsed);
+        setMessage("بسته تولید از ChatGPT دریافت، اعتبارسنجی و ذخیره شد.");
+        setBridgeLoading(false); cleanup();advance("production","quality");
+      } catch { /* response not ready */ }
+    };
+    const poll = () => {
+      if (Date.now() - started > 180000) {
+        cleanup(); setBridgeLoading(false); setMessage("مهلت دریافت خودکار تمام شد؛ می‌توانی پاسخ را دستی وارد کنی."); return;
+      }
+      window.postMessage({channel:bridgeChannel,type:"CAPTURE_RESPONSE",requestId:crypto.randomUUID(),auto:true},location.origin);
+    };
+    const timer = window.setInterval(poll,3000);
+    const cleanup = () => {window.clearInterval(timer);window.removeEventListener("message",handle);};
+    window.addEventListener("message",handle);
+    return cleanup;
+  }, [bridgeLoading, brief]);
+
+  function generateWithBridge() {
+    if (!brief || !clarificationStatus().valid) {
+      setMessage("ابتدا اطلاعات ضروری مرحله برنامه‌ریزی را تکمیل کن."); return;
+    }
+    const requestId=crypto.randomUUID();
+    sessionStorage.setItem("instagram-ai-admin:production-bridge-id",requestId);
+    setMessage("در حال ارسال درخواست تولید به ChatGPT...");
+    setBridgeLoading(true);
+    window.postMessage({channel:bridgeChannel,type:"DRAFT_CHATGPT",requestId,
+      payload:{task:"creative-production",project:"Instagram AI Admin"},
+      prompt:buildRequest(),responseKind:"production",autoSend:true},location.origin);
+  }
+  useEffect(()=>{
+    if(!loaded||!brief||!profile||bridgeLoading)return;
+    const flow=workflow();
+    if(!flow?.active||flow.stage!=="production"||!clarificationStatus().valid)return;
+    if(sessionStorage.getItem("instagram-ai-admin:workflow-production-started")==="1")return;
+    sessionStorage.setItem("instagram-ai-admin:workflow-production-started","1");
+    generateWithBridge();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[loaded,brief,profile]);
   function save() {
     try {
       if (!clarificationStatus().valid) throw new Error("تکمیل اطلاعات ضروری در مرحله برنامه‌ریزی لازم است.");
@@ -65,6 +133,7 @@ export default function ProductionPage() {
         <p className="mt-2 text-sm">موضوع: {brief.topic}</p><p className="mt-1 text-sm">قالب: {brief.format}</p>
         <p className="mt-2 text-xs text-slate-500">اگر پیشنهاد مرحله دوم تغییر کند، برای تولید مجدد باید این درخواست را دوباره کپی کنی.</p>
 <Link href="/planning" className="mt-3 block text-sm text-indigo-700 underline">ویرایش پاسخ‌ها و اختیار تصمیم‌گیری</Link>
+        <button onClick={generateWithBridge} disabled={bridgeLoading} className="mt-5 ml-3 rounded-xl bg-emerald-700 px-5 py-3 font-semibold text-white disabled:opacity-50">{bridgeLoading ? "در حال دریافت بسته تولید..." : "تولید خودکار با ChatGPT Bridge"}</button>
         <button onClick={copyRequest} className="mt-5 rounded-xl bg-indigo-700 px-5 py-3 font-semibold text-white">کپی درخواست تولید خلاقانه برای ChatGPT</button>
         <label htmlFor="creative-json" className="mt-5 block text-sm font-semibold">پاسخ JSON از ChatGPT</label>
         <textarea id="creative-json" dir="ltr" rows={8} value={input} onChange={e => setInput(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 p-3 font-mono text-xs" placeholder='{"title":"...", "concept":"...", ...}' />

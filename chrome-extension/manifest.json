@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Instagram AI Admin Bridge",
+  "version": "0.1.0",
+  "description": "Local JSON bridge for Instagram AI Admin",
+  "permissions": [
+    "scripting",
+    "storage",
+    "tabs",
+    "debugger"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "chatgpt-content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
